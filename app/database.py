@@ -4,6 +4,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.sql import func
 from datetime import datetime
+from urllib.parse import quote_plus
 import enum
 
 from app.config import settings
@@ -152,7 +153,10 @@ class ScanHistory(Base):
 
 
 # Database connection
-DATABASE_URL = f"mysql+pymysql://{settings.DB_USER}:{settings.DB_PASSWORD}@{settings.DB_HOST}:{settings.DB_PORT}/{settings.DB_NAME}"
+# URL-encode username and password to handle special characters
+encoded_user = quote_plus(settings.DB_USER)
+encoded_password = quote_plus(settings.DB_PASSWORD)
+DATABASE_URL = f"mysql+pymysql://{encoded_user}:{encoded_password}@{settings.DB_HOST}:{settings.DB_PORT}/{settings.DB_NAME}"
 
 engine = create_engine(
     DATABASE_URL,
