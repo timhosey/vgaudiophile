@@ -12,25 +12,40 @@ from app.metadata.file_tags import extract_metadata
 from app.config import settings
 
 
-def scan_directory(directory_path: str, db: Session) -> ScanHistory:
+def scan_directory(directory_path: str, db: Session, scan_history_id: Optional[int] = None) -> ScanHistory:
     """
     Scan a directory for audio files and add them to the database.
     
     Args:
         directory_path: Path to directory to scan
         db: Database session
+        scan_history_id: Optional ID of existing scan_history to update
         
     Returns:
         ScanHistory object
     """
-    # Create scan history entry
-    scan_history = ScanHistory(
-        directory_path=directory_path,
-        status=ScanStatus.RUNNING
-    )
-    db.add(scan_history)
-    db.commit()
-    db.refresh(scan_history)
+    # Get or create scan history entry
+    if scan_history_id:
+        scan_history = db.query(ScanHistory).filter(ScanHistory.id == scan_history_id).first()
+        if not scan_history:
+            raise ValueError(f"Scan history {scan_history_id} not found")
+        # Update directory path if it changed
+        if scan_history.directory_path != directory_path:
+            scan_history.directory_path = directory_path
+        # Ensure status is RUNNING
+        if scan_history.status != ScanStatus.RUNNING:
+            scan_history.status = ScanStatus.RUNNING
+        db.commit()
+        db.refresh(scan_history)
+    else:
+        # Create scan history entry
+        scan_history = ScanHistory(
+            directory_path=directory_path,
+            status=ScanStatus.RUNNING
+        )
+        db.add(scan_history)
+        db.commit()
+        db.refresh(scan_history)
     
     files_scanned = 0
     files_added = 0

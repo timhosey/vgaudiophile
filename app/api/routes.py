@@ -43,7 +43,21 @@ def scan_directory_endpoint(
             from app.database import SessionLocal
             bg_db = SessionLocal()
             try:
-                scan_directory(request.directory, bg_db)
+                # Call scan_directory with the scan_history ID so it updates the existing entry
+                scan_directory(request.directory, bg_db, scan_history_id=scan_history.id)
+            except Exception as e:
+                # Update scan history with error
+                try:
+                    scan_history_to_update = bg_db.query(ScanHistory).filter(
+                        ScanHistory.id == scan_history.id
+                    ).first()
+                    if scan_history_to_update:
+                        scan_history_to_update.status = ScanStatus.FAILED
+                        scan_history_to_update.errors = str(e)
+                        bg_db.commit()
+                    print(f"Error in background scan: {e}")
+                except Exception as db_error:
+                    print(f"Error updating scan history: {db_error}")
             finally:
                 bg_db.close()
         
