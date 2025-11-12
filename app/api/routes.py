@@ -24,6 +24,8 @@ def scan_directory_endpoint(request: ScanRequest, db: Session = Depends(get_db))
     """Scan a directory for audio files."""
     try:
         scan_history = scan_directory(request.directory, db)
+        # Refresh to ensure we have the latest data
+        db.refresh(scan_history)
         return scan_history
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

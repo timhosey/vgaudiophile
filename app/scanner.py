@@ -54,28 +54,48 @@ def scan_directory(directory_path: str, db: Session) -> ScanHistory:
         
         # Find all audio files
         audio_files = find_audio_files(directory_path)
-        files_scanned = len(audio_files)
+        total_files = len(audio_files)
+        
+        # Update scan history with total files found
+        scan_history.files_scanned = total_files
+        db.commit()
+        db.refresh(scan_history)
         
         # Process each file
-        for file_path in audio_files:
+        for idx, file_path in enumerate(audio_files, 1):
             try:
                 added, updated = process_audio_file(file_path, directory_path, db)
                 if added:
                     files_added += 1
                 if updated:
                     files_updated += 1
+                
+                # Update scan history every 50 files or at the end
+                if idx % 50 == 0 or idx == total_files:
+                    scan_history.files_scanned = idx
+                    scan_history.files_added = files_added
+                    scan_history.files_updated = files_updated
+                    if errors:
+                        scan_history.errors = "\n".join(errors[:10])  # Limit error text
+                    db.commit()
+                    db.refresh(scan_history)
+                    
             except Exception as e:
                 error_msg = f"Error processing {file_path}: {str(e)}"
                 errors.append(error_msg)
                 print(error_msg)
         
-        # Update scan history
-        scan_history.files_scanned = files_scanned
+        # Final update scan history
+        scan_history.files_scanned = total_files
         scan_history.files_added = files_added
         scan_history.files_updated = files_updated
         scan_history.status = ScanStatus.COMPLETED
         if errors:
-            scan_history.errors = "\n".join(errors)
+            # Store all errors, but limit display length
+            error_text = "\n".join(errors)
+            if len(error_text) > 10000:  # Limit to 10KB
+                error_text = error_text[:10000] + f"\n... ({len(errors) - len(errors[:100])} more errors)"
+            scan_history.errors = error_text
         
     except Exception as e:
         scan_history.status = ScanStatus.FAILED
