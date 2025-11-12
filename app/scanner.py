@@ -1,7 +1,7 @@
 """Directory scanner for audio files."""
 import os
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 from sqlalchemy.orm import Session
 from app.database import (
     Soundtrack, Artist, SoundtrackArtist, Tag, SoundtrackTag,
@@ -10,6 +10,42 @@ from app.database import (
 )
 from app.metadata.file_tags import extract_metadata
 from app.config import settings
+
+
+def create_error_summary(error_counts: Dict, total_errors: int) -> str:
+    """
+    Create a human-readable error summary.
+    
+    Args:
+        error_counts: Dictionary mapping error types to counts and samples
+        total_errors: Total number of errors
+        
+    Returns:
+        Formatted error summary string
+    """
+    if not error_counts:
+        return None
+    
+    summary_lines = [
+        f"Total errors: {total_errors}",
+        f"Error types: {len(error_counts)}",
+        ""
+    ]
+    
+    for error_type, info in error_counts.items():
+        summary_lines.append(f"{error_type}: {info['count']} files")
+        if info['message']:
+            # Truncate long error messages
+            msg = info['message'][:100] + "..." if len(info['message']) > 100 else info['message']
+            summary_lines.append(f"  Message: {msg}")
+        if info['sample_files']:
+            files_str = ", ".join(info['sample_files'])
+            if info['count'] > len(info['sample_files']):
+                files_str += f" (and {info['count'] - len(info['sample_files'])} more)"
+            summary_lines.append(f"  Sample files: {files_str}")
+        summary_lines.append("")
+    
+    return "\n".join(summary_lines)
 
 
 def scan_directory(directory_path: str, db: Session, scan_history_id: Optional[int] = None) -> ScanHistory:
@@ -51,6 +87,7 @@ def scan_directory(directory_path: str, db: Session, scan_history_id: Optional[i
     files_added = 0
     files_updated = 0
     errors = []
+    error_counts = {}  # Track error types and counts
     
     try:
         # Normalize directory path
@@ -78,39 +115,71 @@ def scan_directory(directory_path: str, db: Session, scan_history_id: Optional[i
         
         # Process each file
         for idx, file_path in enumerate(audio_files, 1):
-            try:
-                added, updated = process_audio_file(file_path, directory_path, db)
-                if added:
-                    files_added += 1
-                if updated:
-                    files_updated += 1
+            added, updated, error = process_audio_file(file_path, directory_path, db)
+            
+            if added:
+                files_added += 1
+            if updated:
+                files_updated += 1
+            
+            # Track errors if any occurred
+            if error:
+                error_type = type(error).__name__
+                error_msg = str(error)
                 
-                # Update scan history every 50 files or at the end
-                # Keep files_scanned as total, don't overwrite it
-                if idx % 50 == 0 or idx == total_files:
-                    scan_history.files_added = files_added
-                    scan_history.files_updated = files_updated
-                    if errors:
-                        scan_history.errors = "\n".join(errors[:10])  # Limit error text
-                    db.commit()
-                    db.refresh(scan_history)
-                    
-            except Exception as e:
-                error_msg = f"Error processing {file_path}: {str(e)}"
-                errors.append(error_msg)
-                print(error_msg)
+                # Create a key for this error type
+                if error_type not in error_counts:
+                    error_counts[error_type] = {
+                        'count': 0,
+                        'message': error_msg,
+                        'sample_files': []
+                    }
+                
+                error_counts[error_type]['count'] += 1
+                
+                # Keep a sample of files with this error (max 3)
+                if len(error_counts[error_type]['sample_files']) < 3:
+                    error_counts[error_type]['sample_files'].append(
+                        os.path.basename(file_path)
+                    )
+                
+                # Also keep full error for detailed logging if needed
+                errors.append(f"{os.path.basename(file_path)}: {error_type} - {error_msg}")
+            
+            # Update scan history every 50 files or at the end
+            # Keep files_scanned as total, don't overwrite it
+            if idx % 50 == 0 or idx == total_files:
+                scan_history.files_added = files_added
+                scan_history.files_updated = files_updated
+                # Update error summary
+                if error_counts:
+                    error_summary = create_error_summary(error_counts, len(errors))
+                    scan_history.errors = error_summary
+                db.commit()
+                db.refresh(scan_history)
         
         # Final update scan history
         scan_history.files_scanned = total_files
         scan_history.files_added = files_added
         scan_history.files_updated = files_updated
         scan_history.status = ScanStatus.COMPLETED
-        if errors:
-            # Store all errors, but limit display length
-            error_text = "\n".join(errors)
-            if len(error_text) > 10000:  # Limit to 10KB
-                error_text = error_text[:10000] + f"\n... ({len(errors) - len(errors[:100])} more errors)"
-            scan_history.errors = error_text
+        
+        # Create final error summary
+        if error_counts:
+            error_summary = create_error_summary(error_counts, len(errors))
+            scan_history.errors = error_summary
+            # Print summary to console
+            print(f"\n=== Scan Summary ===")
+            print(f"Files scanned: {total_files}")
+            print(f"Files added: {files_added}")
+            print(f"Files updated: {files_updated}")
+            print(f"Errors encountered: {len(errors)}")
+            print(f"\nError breakdown:")
+            for error_type, info in error_counts.items():
+                print(f"  {error_type}: {info['count']} files")
+                if info['sample_files']:
+                    print(f"    Sample files: {', '.join(info['sample_files'])}")
+            print("=" * 20)
         
     except Exception as e:
         scan_history.status = ScanStatus.FAILED
@@ -152,7 +221,7 @@ def find_audio_files(directory_path: str) -> List[str]:
     return sorted(audio_files)
 
 
-def process_audio_file(file_path: str, base_directory: str, db: Session) -> Tuple[bool, bool]:
+def process_audio_file(file_path: str, base_directory: str, db: Session) -> Tuple[bool, bool, Optional[Exception]]:
     """
     Process a single audio file and add/update it in the database.
     
@@ -162,42 +231,57 @@ def process_audio_file(file_path: str, base_directory: str, db: Session) -> Tupl
         db: Database session
         
     Returns:
-        Tuple of (added, updated) booleans
+        Tuple of (added, updated, error) where error is None if successful
     """
     # Check if file already exists in database
     existing = db.query(Soundtrack).filter(
         Soundtrack.file_path == file_path
     ).first()
     
-    # Extract metadata from file
-    file_metadata = extract_metadata(file_path)
+    # Extract metadata from file (may fail, but we'll still add the file)
+    metadata_error = None
+    try:
+        file_metadata = extract_metadata(file_path)
+    except Exception as e:
+        # If metadata extraction fails, create minimal metadata from filename
+        metadata_error = e
+        file_metadata = {
+            "title": os.path.splitext(os.path.basename(file_path))[0],
+            "file_size": os.path.getsize(file_path) if os.path.exists(file_path) else None
+        }
     
     # Determine release type from path
     release_type = determine_release_type(file_path, base_directory)
     
     # Create or update soundtrack
-    if existing:
-        # Update existing entry
-        update_soundtrack_from_metadata(existing, file_metadata, release_type)
-        db.commit()
-        return False, True
-    else:
-        # Create new entry
-        soundtrack = create_soundtrack_from_metadata(file_path, file_metadata, release_type, db)
-        db.add(soundtrack)
-        db.commit()
-        db.refresh(soundtrack)
-        
-        # Add file tags metadata source
-        metadata_source = MetadataSource(
-            soundtrack_id=soundtrack.id,
-            source_type=MetadataSourceType.FILE_TAGS,
-            metadata_json=file_metadata
-        )
-        db.add(metadata_source)
-        db.commit()
-        
-        return True, False
+    try:
+        if existing:
+            # Update existing entry
+            update_soundtrack_from_metadata(existing, file_metadata, release_type)
+            db.commit()
+            return False, True, metadata_error
+        else:
+            # Create new entry
+            soundtrack = create_soundtrack_from_metadata(file_path, file_metadata, release_type, db)
+            db.add(soundtrack)
+            db.commit()
+            db.refresh(soundtrack)
+            
+            # Add file tags metadata source (only if metadata extraction succeeded)
+            if not metadata_error:
+                metadata_source = MetadataSource(
+                    soundtrack_id=soundtrack.id,
+                    source_type=MetadataSourceType.FILE_TAGS,
+                    metadata_json=file_metadata
+                )
+                db.add(metadata_source)
+                db.commit()
+            
+            return True, False, metadata_error
+    except Exception as e:
+        # If database operation fails, return error
+        db.rollback()
+        return False, False, e
 
 
 def determine_release_type(file_path: str, base_directory: str) -> ReleaseType:

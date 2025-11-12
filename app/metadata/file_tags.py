@@ -146,8 +146,9 @@ def extract_metadata(file_path: str) -> Dict[str, any]:
     except ID3NoHeaderError:
         pass
     except Exception as e:
-        # Log error but don't fail
-        print(f"Error extracting metadata from {file_path}: {e}")
+        # Don't print every error - let the scanner aggregate them
+        # Just raise the exception so scanner can handle it
+        raise
     
     return metadata
 

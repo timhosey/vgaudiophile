@@ -458,15 +458,29 @@ async function loadScanHistory() {
             return;
         }
         
-        list.innerHTML = scans.map(scan => `
-            <div class="scan-history-item">
-                <h4>${escapeHtml(scan.directory_path)}</h4>
-                <p>Status: ${scan.status}</p>
-                <p>Scanned: ${scan.files_scanned} | Added: ${scan.files_added} | Updated: ${scan.files_updated}</p>
-                <p>Started: ${new Date(scan.started_at).toLocaleString()}</p>
-                ${scan.completed_at ? `<p>Completed: ${new Date(scan.completed_at).toLocaleString()}</p>` : ''}
-            </div>
-        `).join('');
+        list.innerHTML = scans.map(scan => {
+            let errorsHtml = '';
+            if (scan.errors) {
+                const errorLines = scan.errors.split('\n').filter(line => line.trim());
+                errorsHtml = `
+                    <div style="margin-top: 10px; padding: 10px; background: #fff3cd; border-left: 3px solid #ffc107; border-radius: 4px;">
+                        <strong>Errors:</strong>
+                        <pre style="margin-top: 5px; font-size: 0.85em; white-space: pre-wrap; word-wrap: break-word;">${escapeHtml(scan.errors)}</pre>
+                    </div>
+                `;
+            }
+            
+            return `
+                <div class="scan-history-item">
+                    <h4>${escapeHtml(scan.directory_path)}</h4>
+                    <p><strong>Status:</strong> ${scan.status}</p>
+                    <p><strong>Scanned:</strong> ${scan.files_scanned} | <strong>Added:</strong> ${scan.files_added} | <strong>Updated:</strong> ${scan.files_updated}</p>
+                    <p><strong>Started:</strong> ${new Date(scan.started_at).toLocaleString()}</p>
+                    ${scan.completed_at ? `<p><strong>Completed:</strong> ${new Date(scan.completed_at).toLocaleString()}</p>` : ''}
+                    ${errorsHtml}
+                </div>
+            `;
+        }).join('');
     } catch (error) {
         list.innerHTML = `<div class="error">Error loading scan history: ${error.message}</div>`;
     }
