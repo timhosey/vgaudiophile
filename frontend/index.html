@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VGAudiophile - Video Game Soundtrack Catalog</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎮 VGAudiophile</h1>
+            <p class="subtitle">Video Game Soundtrack Catalog</p>
+        </header>
+
+        <nav class="tabs">
+            <button class="tab-button active" data-tab="browse">Browse</button>
+            <button class="tab-button" data-tab="scan">Scan</button>
+            <button class="tab-button" data-tab="stats">Statistics</button>
+        </nav>
+
+        <!-- Browse Tab -->
+        <div id="browse-tab" class="tab-content active">
+            <div class="search-bar">
+                <input type="text" id="search-input" placeholder="Search soundtracks..." />
+                <select id="release-type-filter">
+                    <option value="">All Release Types</option>
+                    <option value="game_rip">Game Rip</option>
+                    <option value="remix_album">Remix Album</option>
+                    <option value="online_album">Online Album</option>
+                    <option value="official_release">Official Release</option>
+                    <option value="other">Other</option>
+                </select>
+                <select id="source-type-filter">
+                    <option value="">All Source Types</option>
+                    <option value="file">File</option>
+                    <option value="youtube">YouTube</option>
+                    <option value="soundcloud">SoundCloud</option>
+                </select>
+                <button id="search-button">Search</button>
+            </div>
+
+            <div id="soundtracks-list" class="soundtracks-grid">
+                <!-- Soundtracks will be loaded here -->
+            </div>
+
+            <div class="pagination">
+                <button id="prev-page" disabled>Previous</button>
+                <span id="page-info">Page 1</span>
+                <button id="next-page">Next</button>
+            </div>
+        </div>
+
+        <!-- Scan Tab -->
+        <div id="scan-tab" class="tab-content">
+            <div class="scan-section">
+                <h2>Scan Directory</h2>
+                <div class="form-group">
+                    <label for="scan-directory">Directory Path:</label>
+                    <input type="text" id="scan-directory" placeholder="/music" />
+                    <button id="scan-button">Start Scan</button>
+                </div>
+                <div id="scan-status" class="scan-status"></div>
+                <div id="scan-history" class="scan-history">
+                    <h3>Scan History</h3>
+                    <div id="scan-history-list"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats Tab -->
+        <div id="stats-tab" class="tab-content">
+            <div id="stats-content" class="stats-grid">
+                <!-- Statistics will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Soundtrack Detail Modal -->
+    <div id="soundtrack-modal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2 id="modal-title">Soundtrack Details</h2>
+            <div id="modal-body">
+                <!-- Details will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
+

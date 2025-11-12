@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  db:
+    image: mariadb:10.11
+    container_name: vgaudiophile_db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${DB_NAME:-vgaudiophile}
+      MYSQL_USER: ${DB_USER:-vgaudiophile}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-vgaudiophile}
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    container_name: vgaudiophile_app
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-vgaudiophile}
+      DB_USER: ${DB_USER:-vgaudiophile}
+      DB_PASSWORD: ${DB_PASSWORD:-vgaudiophile}
+      MUSIC_DIRECTORY: ${MUSIC_DIRECTORY:-/music}
+      MUSICBRAINZ_USER_AGENT: ${MUSICBRAINZ_USER_AGENT:-VGAudiophile/1.0}
+      DISCOGS_TOKEN: ${DISCOGS_TOKEN:-}
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+      SOUNDCLOUD_CLIENT_ID: ${SOUNDCLOUD_CLIENT_ID:-}
+    volumes:
+      - ${MUSIC_DIRECTORY:-./music}:/music:ro
+      - ./app:/app/app
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    restart: unless-stopped
+
+volumes:
+  db_data:
+
