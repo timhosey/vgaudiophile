@@ -104,6 +104,10 @@ def find_audio_files(directory_path: str) -> List[str]:
     
     for root, dirs, files in os.walk(directory_path):
         for file in files:
+            # Skip hidden/system files (macOS resource forks, etc.)
+            if file.startswith('._') or file.startswith('.'):
+                continue
+            
             file_path = os.path.join(root, file)
             file_ext = os.path.splitext(file)[1].lower()
             
