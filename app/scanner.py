@@ -125,7 +125,7 @@ def scan_directory(directory_path: str, db: Session, scan_history_id: Optional[i
             # Track errors if any occurred
             if error:
                 error_type = type(error).__name__
-                error_msg = str(error)
+                error_msg = str(error) if str(error) else f"{error_type} occurred"
                 
                 # Create a key for this error type
                 if error_type not in error_counts:
@@ -134,6 +134,8 @@ def scan_directory(directory_path: str, db: Session, scan_history_id: Optional[i
                         'message': error_msg,
                         'sample_files': []
                     }
+                    # Log the first occurrence of each error type with full details
+                    print(f"Error type '{error_type}': {error_msg}")
                 
                 error_counts[error_type]['count'] += 1
                 
@@ -243,10 +245,38 @@ def process_audio_file(file_path: str, base_directory: str, db: Session) -> Tupl
     try:
         file_metadata = extract_metadata(file_path)
     except Exception as e:
-        # If metadata extraction fails, create minimal metadata from filename
+        # If metadata extraction fails, create minimal metadata from filename and path
         metadata_error = e
+        filename = os.path.splitext(os.path.basename(file_path))[0]
+        
+        # Try to extract album/artist from path structure
+        # Path format: /music/Album Name [Type]/track.flac
+        # or: /music/Artist - Album/track.flac
+        path_parts = os.path.dirname(file_path).split(os.sep)
+        album_name = None
+        artist_name = None
+        
+        # Get the immediate parent directory (album folder)
+        if len(path_parts) > 0:
+            parent_dir = path_parts[-1]
+            # Try to parse "Artist - Album" or "Album [Type]" format
+            if " - " in parent_dir:
+                parts = parent_dir.split(" - ", 1)
+                artist_name = parts[0].strip()
+                album_name = parts[1].strip()
+            else:
+                album_name = parent_dir.strip()
+                # Remove common suffixes like [FLAC], [MP3], etc.
+                for suffix in [" [FLAC]", " [MP3]", " [OGG]", " [M4A]"]:
+                    if album_name.endswith(suffix):
+                        album_name = album_name[:-len(suffix)].strip()
+                        break
+        
         file_metadata = {
-            "title": os.path.splitext(os.path.basename(file_path))[0],
+            "title": filename,
+            "album": album_name,
+            "artist": artist_name,
+            "artists": [artist_name] if artist_name else [],
             "file_size": os.path.getsize(file_path) if os.path.exists(file_path) else None
         }
     

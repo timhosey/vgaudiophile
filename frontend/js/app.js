@@ -47,6 +47,7 @@ function initializeTabs() {
 function initializeSearch() {
     const searchButton = document.getElementById('search-button');
     const searchInput = document.getElementById('search-input');
+    const groupByFilter = document.getElementById('group-by-filter');
     
     searchButton.addEventListener('click', () => {
         currentPage = 0;
@@ -59,6 +60,14 @@ function initializeSearch() {
             loadSoundtracks();
         }
     });
+    
+    // Reload when group-by changes
+    if (groupByFilter) {
+        groupByFilter.addEventListener('change', () => {
+            currentPage = 0;
+            loadSoundtracks();
+        });
+    }
     
     // Pagination
     document.getElementById('prev-page').addEventListener('click', () => {
@@ -82,6 +91,7 @@ async function loadSoundtracks() {
     const search = document.getElementById('search-input').value;
     const releaseType = document.getElementById('release-type-filter').value;
     const sourceType = document.getElementById('source-type-filter').value;
+    const groupBy = document.getElementById('group-by-filter')?.value || '';
     
     const params = new URLSearchParams({
         skip: (currentPage * pageSize).toString(),
@@ -91,24 +101,39 @@ async function loadSoundtracks() {
     if (search) params.append('search', search);
     if (releaseType) params.append('release_type', releaseType);
     if (sourceType) params.append('source_type', sourceType);
+    if (groupBy) params.append('group_by', groupBy);
     
     try {
         const response = await fetch(`${API_BASE}/soundtracks?${params}`);
         if (!response.ok) throw new Error('Failed to load soundtracks');
         
-        const soundtracks = await response.json();
+        const data = await response.json();
+        const soundtracks = data.soundtracks || data; // Handle both old and new format
+        const pagination = data.pagination;
         
         if (soundtracks.length === 0) {
             list.innerHTML = '<div class="loading">No soundtracks found.</div>';
             return;
         }
         
-        list.innerHTML = soundtracks.map(st => createSoundtrackCard(st)).join('');
+        // Display grouped or ungrouped
+        if (data.grouped && groupBy) {
+            list.innerHTML = displayGroupedSoundtracks(data.grouped);
+        } else {
+            list.innerHTML = soundtracks.map(st => createSoundtrackCard(st)).join('');
+        }
         
         // Update pagination
-        document.getElementById('page-info').textContent = `Page ${currentPage + 1}`;
-        document.getElementById('prev-page').disabled = currentPage === 0;
-        document.getElementById('next-page').disabled = soundtracks.length < pageSize;
+        if (pagination) {
+            document.getElementById('page-info').textContent = `Page ${pagination.page} of ${pagination.total_pages} (${pagination.total} total)`;
+            document.getElementById('prev-page').disabled = !pagination.has_prev;
+            document.getElementById('next-page').disabled = !pagination.has_next;
+        } else {
+            // Fallback for old format
+            document.getElementById('page-info').textContent = `Page ${currentPage + 1}`;
+            document.getElementById('prev-page').disabled = currentPage === 0;
+            document.getElementById('next-page').disabled = soundtracks.length < pageSize;
+        }
         
         // Add click handlers
         document.querySelectorAll('.soundtrack-card').forEach(card => {
@@ -122,9 +147,35 @@ async function loadSoundtracks() {
     }
 }
 
+// Display grouped soundtracks
+function displayGroupedSoundtracks(grouped) {
+    let html = '';
+    for (const [groupName, tracks] of Object.entries(grouped).sort()) {
+        html += `
+            <div class="group-section" style="grid-column: 1 / -1; margin-top: 20px; margin-bottom: 10px;">
+                <h3 style="color: #667eea; font-size: 1.3em; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 2px solid #667eea;">
+                    ${escapeHtml(groupName)} (${tracks.length} tracks)
+                </h3>
+            </div>
+        `;
+        html += tracks.map(st => createSoundtrackCard(st)).join('');
+    }
+    return html;
+}
+
 // Create soundtrack card
 function createSoundtrackCard(soundtrack) {
-    const artists = soundtrack.artists.map(a => a.name).join(', ') || 'Unknown Artist';
+    // Handle artists - can be array of objects or array of strings
+    let artists = 'Unknown Artist';
+    if (soundtrack.artists && soundtrack.artists.length > 0) {
+        artists = soundtrack.artists.map(a => {
+            if (typeof a === 'string') return a;
+            return a.name || a;
+        }).join(', ');
+    } else if (soundtrack.artist) {
+        artists = soundtrack.artist;
+    }
+    
     const duration = soundtrack.duration ? formatDuration(soundtrack.duration) : '';
     const gameName = soundtrack.game_name ? ` • ${soundtrack.game_name}` : '';
     

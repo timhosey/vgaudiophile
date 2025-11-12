@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from typing import List, Optional
+import os
 from app.database import (
     get_db, Soundtrack, Artist, SoundtrackArtist, ScanHistory,
     MetadataSource, MetadataSourceType, Tag, SoundtrackTag
@@ -79,7 +80,7 @@ def get_scan_status(scan_id: int, db: Session = Depends(get_db)):
     return scan_history
 
 
-@router.get("/soundtracks", response_model=List[SoundtrackResponse])
+@router.get("/soundtracks", response_model=dict)
 def list_soundtracks(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
@@ -87,9 +88,10 @@ def list_soundtracks(
     game_name: Optional[str] = Query(None),
     release_type: Optional[str] = Query(None),
     source_type: Optional[str] = Query(None),
+    group_by: Optional[str] = Query(None, description="Group by: album, folder, or none"),
     db: Session = Depends(get_db)
 ):
-    """List soundtracks with optional filtering."""
+    """List soundtracks with optional filtering and grouping."""
     query = db.query(Soundtrack)
     
     # Apply filters
@@ -114,6 +116,10 @@ def list_soundtracks(
     # Get total count before pagination
     total = query.count()
     
+    # Calculate pagination info
+    total_pages = (total + limit - 1) // limit if total > 0 else 1
+    current_page = (skip // limit) + 1
+    
     # Apply pagination and ordering
     soundtracks = query.order_by(Soundtrack.title).offset(skip).limit(limit).all()
     
@@ -123,7 +129,45 @@ def list_soundtracks(
             sa.artist for sa in soundtrack.artists
         ]
     
-    return soundtracks
+    # Group soundtracks if requested
+    grouped_data = None
+    if group_by == "album":
+        grouped = {}
+        for st in soundtracks:
+            album_key = st.album or "Unknown Album"
+            if album_key not in grouped:
+                grouped[album_key] = []
+            grouped[album_key].append(st)
+        grouped_data = grouped
+    elif group_by == "folder":
+        grouped = {}
+        for st in soundtracks:
+            if st.file_path:
+                # Extract folder name from path
+                folder = os.path.dirname(st.file_path).split(os.sep)[-1] or "Unknown Folder"
+            else:
+                folder = "Unknown Folder"
+            if folder not in grouped:
+                grouped[folder] = []
+            grouped[folder].append(st)
+        grouped_data = grouped
+    
+    result = {
+        "soundtracks": soundtracks,
+        "pagination": {
+            "total": total,
+            "page": current_page,
+            "page_size": limit,
+            "total_pages": total_pages,
+            "has_next": skip + limit < total,
+            "has_prev": skip > 0
+        }
+    }
+    
+    if grouped_data:
+        result["grouped"] = grouped_data
+    
+    return result
 
 
 @router.get("/soundtracks/{soundtrack_id}", response_model=SoundtrackResponse)
