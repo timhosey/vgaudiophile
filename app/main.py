@@ -5,6 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from app.api.routes import router
 from app.config import settings
+from app.database import Base, engine
 import os
 
 app = FastAPI(
@@ -12,6 +13,12 @@ app = FastAPI(
     description="API for indexing, cataloguing, and tagging video game soundtracks",
     version="1.0.0"
 )
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Create database tables on startup if they don't exist."""
+    Base.metadata.create_all(bind=engine)
 
 # CORS middleware
 app.add_middleware(
