@@ -5,7 +5,7 @@ from sqlalchemy import func, or_
 from typing import List, Optional
 from app.database import (
     get_db, Soundtrack, Artist, SoundtrackArtist, ScanHistory,
-    MetadataSource, MetadataSourceType
+    MetadataSource, MetadataSourceType, Tag, SoundtrackTag
 )
 from app.api.models import (
     SoundtrackResponse, SoundtrackUpdate, ScanRequest, ScanResponse,
@@ -327,4 +327,50 @@ def get_scan_history(
     ).offset(skip).limit(limit).all()
     
     return scans
+
+
+@router.delete("/admin/clear-all")
+def clear_all_data(db: Session = Depends(get_db)):
+    """
+    Admin endpoint to clear all scanned data from the database.
+    WARNING: This will delete all soundtracks, artists, tags, metadata sources, and scan history.
+    """
+    try:
+        # Delete in order to respect foreign key constraints
+        # Metadata sources (references soundtracks)
+        db.query(MetadataSource).delete()
+        
+        # Soundtrack tags (references soundtracks and tags)
+        db.query(SoundtrackTag).delete()
+        
+        # Soundtrack artists (references soundtracks and artists)
+        db.query(SoundtrackArtist).delete()
+        
+        # Soundtracks
+        db.query(Soundtrack).delete()
+        
+        # Scan history
+        db.query(ScanHistory).delete()
+        
+        # Artists (no longer referenced)
+        db.query(Artist).delete()
+        
+        # Tags (no longer referenced)
+        db.query(Tag).delete()
+        
+        db.commit()
+        
+        return {
+            "message": "All data cleared successfully",
+            "deleted": {
+                "soundtracks": "all",
+                "artists": "all",
+                "tags": "all",
+                "metadata_sources": "all",
+                "scan_history": "all"
+            }
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error clearing data: {str(e)}")
 

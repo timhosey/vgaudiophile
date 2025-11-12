@@ -279,6 +279,14 @@ function initializeScan() {
         }
         startScan(directory);
     });
+    
+    // Clear all data button
+    const clearAllButton = document.getElementById('clear-all-button');
+    clearAllButton.addEventListener('click', () => {
+        if (confirm('Are you sure you want to delete ALL data? This cannot be undone!')) {
+            clearAllData();
+        }
+    });
 }
 
 // Start scan
@@ -307,6 +315,35 @@ async function startScan(directory) {
     } catch (error) {
         statusDiv.className = 'scan-status active failed';
         statusDiv.textContent = `Scan failed: ${error.message}`;
+    }
+}
+
+// Clear all data
+async function clearAllData() {
+    const clearButton = document.getElementById('clear-all-button');
+    clearButton.disabled = true;
+    clearButton.textContent = 'Clearing...';
+    
+    try {
+        const response = await fetch(`${API_BASE}/admin/clear-all`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) throw new Error('Failed to clear data');
+        
+        const result = await response.json();
+        
+        alert('All data cleared successfully!');
+        
+        // Reload data
+        loadSoundtracks();
+        loadStats();
+        loadScanHistory();
+    } catch (error) {
+        alert(`Error clearing data: ${error.message}`);
+    } finally {
+        clearButton.disabled = false;
+        clearButton.textContent = 'Clear All Data';
     }
 }
 
