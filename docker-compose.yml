@@ -40,7 +40,6 @@ services:
       SOUNDCLOUD_CLIENT_ID: ${SOUNDCLOUD_CLIENT_ID:-}
     volumes:
       - ${MUSIC_DIRECTORY:-./music}:/music:ro
-      - .:/app
     ports:
       - "${APP_PORT:-8000}:8000"
     restart: unless-stopped
