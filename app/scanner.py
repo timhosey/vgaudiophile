@@ -223,6 +223,74 @@ def find_audio_files(directory_path: str) -> List[str]:
     return sorted(audio_files)
 
 
+def extract_metadata_from_path(file_path: str) -> dict:
+    """
+    Extract metadata from file path structure.
+    
+    Handles formats like:
+    - /music/Artist - Album/track.flac
+    - /music/Album Name [FLAC]/track.flac
+    - /music/Game Name (Original Game Soundtrack) [FLAC]/track.flac
+    - /music/Game Name [PSX]/track.flac
+    
+    Args:
+        file_path: Full path to audio file
+        
+    Returns:
+        Dictionary with extracted metadata (album, artist, game_name)
+    """
+    filename = os.path.splitext(os.path.basename(file_path))[0]
+    path_parts = os.path.dirname(file_path).split(os.sep)
+    
+    album_name = None
+    artist_name = None
+    game_name = None
+    
+    # Get the immediate parent directory (album folder)
+    if len(path_parts) > 0:
+        parent_dir = path_parts[-1]
+        
+        # Try to parse "Artist - Album" format
+        if " - " in parent_dir:
+            parts = parent_dir.split(" - ", 1)
+            artist_name = parts[0].strip()
+            album_name = parts[1].strip()
+        else:
+            album_name = parent_dir.strip()
+            
+            # Remove common suffixes like [FLAC], [MP3], [PSX], etc.
+            import re
+            # Match [TYPE] at the end
+            match = re.search(r'\s*\[([^\]]+)\]$', album_name)
+            if match:
+                album_name = album_name[:match.start()].strip()
+            
+            # Try to extract game name from patterns like:
+            # "Game Name (Original Game Soundtrack)"
+            # "Game Name OST"
+            # "Game Name Soundtrack"
+            if "(" in album_name and ")" in album_name:
+                # Extract game name before parentheses
+                game_name = album_name.split("(")[0].strip()
+            elif " OST" in album_name:
+                game_name = album_name.replace(" OST", "").strip()
+            elif " Soundtrack" in album_name:
+                game_name = album_name.replace(" Soundtrack", "").strip()
+            else:
+                # Use album name as game name if it looks like a game name
+                game_name = album_name
+    
+    result = {
+        "title": filename,
+        "album": album_name,
+        "artist": artist_name,
+        "artists": [artist_name] if artist_name else [],
+        "game_name": game_name
+    }
+    
+    return result
+
+
 def process_audio_file(file_path: str, base_directory: str, db: Session) -> Tuple[bool, bool, Optional[Exception]]:
     """
     Process a single audio file and add/update it in the database.
@@ -244,41 +312,37 @@ def process_audio_file(file_path: str, base_directory: str, db: Session) -> Tupl
     metadata_error = None
     try:
         file_metadata = extract_metadata(file_path)
+        
+        # If metadata extraction succeeded but found no artist, try path extraction
+        artists_list = file_metadata.get("artists", [])
+        artist_single = file_metadata.get("artist")
+        if not artists_list and not artist_single:
+            # No artist found in tags, try extracting from path
+            path_metadata = extract_metadata_from_path(file_path)
+            if path_metadata.get("artist"):
+                file_metadata["artist"] = path_metadata["artist"]
+                file_metadata["artists"] = path_metadata["artists"]
+            # Also use game_name from path if not found in tags
+            if not file_metadata.get("game_name") and path_metadata.get("game_name"):
+                file_metadata["game_name"] = path_metadata["game_name"]
+            # Use album from path if not found in tags
+            if not file_metadata.get("album") and path_metadata.get("album"):
+                file_metadata["album"] = path_metadata["album"]
+            # If still no artist but we have a game_name, use game_name as artist
+            if not file_metadata.get("artist") and not file_metadata.get("artists") and file_metadata.get("game_name"):
+                file_metadata["artist"] = file_metadata["game_name"]
+                file_metadata["artists"] = [file_metadata["game_name"]]
     except Exception as e:
         # If metadata extraction fails, create minimal metadata from filename and path
         metadata_error = e
-        filename = os.path.splitext(os.path.basename(file_path))[0]
+        path_metadata = extract_metadata_from_path(file_path)
+        file_metadata = path_metadata.copy()
+        file_metadata["file_size"] = os.path.getsize(file_path) if os.path.exists(file_path) else None
         
-        # Try to extract album/artist from path structure
-        # Path format: /music/Album Name [Type]/track.flac
-        # or: /music/Artist - Album/track.flac
-        path_parts = os.path.dirname(file_path).split(os.sep)
-        album_name = None
-        artist_name = None
-        
-        # Get the immediate parent directory (album folder)
-        if len(path_parts) > 0:
-            parent_dir = path_parts[-1]
-            # Try to parse "Artist - Album" or "Album [Type]" format
-            if " - " in parent_dir:
-                parts = parent_dir.split(" - ", 1)
-                artist_name = parts[0].strip()
-                album_name = parts[1].strip()
-            else:
-                album_name = parent_dir.strip()
-                # Remove common suffixes like [FLAC], [MP3], etc.
-                for suffix in [" [FLAC]", " [MP3]", " [OGG]", " [M4A]"]:
-                    if album_name.endswith(suffix):
-                        album_name = album_name[:-len(suffix)].strip()
-                        break
-        
-        file_metadata = {
-            "title": filename,
-            "album": album_name,
-            "artist": artist_name,
-            "artists": [artist_name] if artist_name else [],
-            "file_size": os.path.getsize(file_path) if os.path.exists(file_path) else None
-        }
+        # If no artist found but we have a game_name, use game_name as artist
+        if not file_metadata.get("artist") and not file_metadata.get("artists") and file_metadata.get("game_name"):
+            file_metadata["artist"] = file_metadata["game_name"]
+            file_metadata["artists"] = [file_metadata["game_name"]]
     
     # Determine release type from path
     release_type = determine_release_type(file_path, base_directory)
