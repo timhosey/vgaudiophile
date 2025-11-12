@@ -290,10 +290,18 @@ function initializeScan() {
 }
 
 // Start scan
+let currentScanId = null;
+let scanPollInterval = null;
+
 async function startScan(directory) {
     const statusDiv = document.getElementById('scan-status');
     statusDiv.className = 'scan-status active running';
-    statusDiv.textContent = 'Scanning directory...';
+    statusDiv.innerHTML = '<div class="scan-progress">Starting scan...</div>';
+    
+    // Clear any existing poll interval
+    if (scanPollInterval) {
+        clearInterval(scanPollInterval);
+    }
     
     try {
         const response = await fetch(`${API_BASE}/scan`, {
@@ -307,15 +315,102 @@ async function startScan(directory) {
         if (!response.ok) throw new Error('Failed to start scan');
         
         const scanResult = await response.json();
+        currentScanId = scanResult.id;
         
-        statusDiv.className = 'scan-status active completed';
-        statusDiv.textContent = `Scan completed! Scanned: ${scanResult.files_scanned}, Added: ${scanResult.files_added}, Updated: ${scanResult.files_updated}`;
+        // Start polling for updates
+        pollScanStatus(currentScanId);
         
+        // Also reload scan history
         loadScanHistory();
     } catch (error) {
         statusDiv.className = 'scan-status active failed';
         statusDiv.textContent = `Scan failed: ${error.message}`;
     }
+}
+
+// Poll scan status
+async function pollScanStatus(scanId) {
+    const statusDiv = document.getElementById('scan-status');
+    
+    const poll = async () => {
+        try {
+            const response = await fetch(`${API_BASE}/scan/${scanId}`);
+            if (!response.ok) throw new Error('Failed to get scan status');
+            
+            const scan = await response.json();
+            
+            // Update status display
+            const totalProcessed = (scan.files_added || 0) + (scan.files_updated || 0);
+            const totalFiles = scan.files_scanned || 0;
+            const progressPercent = totalFiles > 0 
+                ? Math.min(100, Math.round((totalProcessed / totalFiles) * 100))
+                : 0;
+            
+            let statusHTML = `
+                <div class="scan-progress">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                        <span><strong>Status:</strong> ${scan.status}</span>
+                        <span><strong>Total Files:</strong> ${totalFiles || 'Finding files...'}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                        <span><strong>Added:</strong> ${scan.files_added || 0}</span>
+                        <span><strong>Updated:</strong> ${scan.files_updated || 0}</span>
+                    </div>
+            `;
+            
+            if (scan.status === 'running' && totalFiles > 0) {
+                statusHTML += `
+                    <div style="background: #e0e0e0; border-radius: 4px; height: 20px; margin-top: 10px; overflow: hidden;">
+                        <div style="background: #667eea; height: 100%; width: ${progressPercent}%; transition: width 0.3s;"></div>
+                    </div>
+                    <div style="margin-top: 5px; font-size: 0.9em; color: #666;">
+                        Processing files... (${totalProcessed} of ${totalFiles} processed, ${progressPercent}%)
+                    </div>
+                `;
+            } else if (scan.status === 'running') {
+                statusHTML += `
+                    <div style="margin-top: 10px; font-size: 0.9em; color: #666;">
+                        Discovering audio files...
+                    </div>
+                `;
+            }
+            
+            statusHTML += '</div>';
+            
+            if (scan.errors) {
+                const errorCount = scan.errors.split('\n').length;
+                statusHTML += `<div style="margin-top: 10px; color: #d32f2f; font-size: 0.9em;">Errors: ${errorCount}</div>`;
+            }
+            
+            statusDiv.innerHTML = statusHTML;
+            
+            // Update status class
+            if (scan.status === 'completed') {
+                statusDiv.className = 'scan-status active completed';
+                if (scanPollInterval) {
+                    clearInterval(scanPollInterval);
+                    scanPollInterval = null;
+                }
+                // Reload data
+                loadSoundtracks();
+                loadStats();
+                loadScanHistory();
+            } else if (scan.status === 'failed') {
+                statusDiv.className = 'scan-status active failed';
+                if (scanPollInterval) {
+                    clearInterval(scanPollInterval);
+                    scanPollInterval = null;
+                }
+                loadScanHistory();
+            }
+        } catch (error) {
+            console.error('Error polling scan status:', error);
+        }
+    };
+    
+    // Poll immediately, then every 2 seconds
+    poll();
+    scanPollInterval = setInterval(poll, 2000);
 }
 
 // Clear all data

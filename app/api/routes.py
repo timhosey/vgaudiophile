@@ -15,20 +15,54 @@ from app.scanner import scan_directory
 from app.metadata.enricher import enrich_from_all_sources
 from app.metadata import musicbrainz, discogs, youtube, soundcloud
 import json
+import threading
 
 router = APIRouter()
 
 
 @router.post("/scan", response_model=ScanResponse)
-def scan_directory_endpoint(request: ScanRequest, db: Session = Depends(get_db)):
-    """Scan a directory for audio files."""
+def scan_directory_endpoint(
+    request: ScanRequest, 
+    db: Session = Depends(get_db)
+):
+    """Start scanning a directory for audio files (runs in background)."""
     try:
-        scan_history = scan_directory(request.directory, db)
-        # Refresh to ensure we have the latest data
+        # Create scan history entry immediately
+        from app.database import ScanStatus
+        scan_history = ScanHistory(
+            directory_path=request.directory,
+            status=ScanStatus.RUNNING
+        )
+        db.add(scan_history)
+        db.commit()
         db.refresh(scan_history)
+        
+        # Run scan in background
+        def run_scan():
+            # Create a new database session for the background task
+            from app.database import SessionLocal
+            bg_db = SessionLocal()
+            try:
+                scan_directory(request.directory, bg_db)
+            finally:
+                bg_db.close()
+        
+        thread = threading.Thread(target=run_scan)
+        thread.daemon = True
+        thread.start()
+        
         return scan_history
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/scan/{scan_id}", response_model=ScanResponse)
+def get_scan_status(scan_id: int, db: Session = Depends(get_db)):
+    """Get the current status of a scan."""
+    scan_history = db.query(ScanHistory).filter(ScanHistory.id == scan_id).first()
+    if not scan_history:
+        raise HTTPException(status_code=404, detail="Scan not found")
+    return scan_history
 
 
 @router.get("/soundtracks", response_model=List[SoundtrackResponse])

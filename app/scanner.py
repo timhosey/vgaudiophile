@@ -71,8 +71,8 @@ def scan_directory(directory_path: str, db: Session) -> ScanHistory:
                     files_updated += 1
                 
                 # Update scan history every 50 files or at the end
+                # Keep files_scanned as total, don't overwrite it
                 if idx % 50 == 0 or idx == total_files:
-                    scan_history.files_scanned = idx
                     scan_history.files_added = files_added
                     scan_history.files_updated = files_updated
                     if errors:
