@@ -91,3 +91,20 @@ class EnrichRequest(BaseModel):
         description="List of sources to use (musicbrainz, discogs, youtube, soundcloud). If None, uses all available."
     )
 
+
+class PaginationInfo(BaseModel):
+    """Pagination information model."""
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+    has_next: bool
+    has_prev: bool
+
+
+class SoundtrackListResponse(BaseModel):
+    """Paginated soundtrack list response model."""
+    soundtracks: List[SoundtrackResponse]
+    pagination: PaginationInfo
+    grouped: Optional[dict[str, List[SoundtrackResponse]]] = None
+

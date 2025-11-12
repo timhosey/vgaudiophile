@@ -10,7 +10,7 @@ from app.database import (
 )
 from app.api.models import (
     SoundtrackResponse, SoundtrackUpdate, ScanRequest, ScanResponse,
-    StatsResponse, EnrichRequest
+    StatsResponse, EnrichRequest, SoundtrackListResponse
 )
 from app.scanner import scan_directory
 from app.metadata.enricher import enrich_from_all_sources
@@ -80,7 +80,7 @@ def get_scan_status(scan_id: int, db: Session = Depends(get_db)):
     return scan_history
 
 
-@router.get("/soundtracks", response_model=dict)
+@router.get("/soundtracks", response_model=SoundtrackListResponse)
 def list_soundtracks(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
@@ -123,17 +123,38 @@ def list_soundtracks(
     # Apply pagination and ordering
     soundtracks = query.order_by(Soundtrack.title).offset(skip).limit(limit).all()
     
-    # Load artists for each soundtrack
+    # Convert to response models
+    soundtrack_responses = []
     for soundtrack in soundtracks:
-        soundtrack.artists = [
-            sa.artist for sa in soundtrack.artists
-        ]
+        # Load artists
+        artists = [sa.artist for sa in soundtrack.artists]
+        # Create response object
+        soundtrack_response = SoundtrackResponse(
+            id=soundtrack.id,
+            title=soundtrack.title,
+            game_name=soundtrack.game_name,
+            release_type=soundtrack.release_type.value if soundtrack.release_type else "other",
+            source_type=soundtrack.source_type.value if soundtrack.source_type else "file",
+            file_path=soundtrack.file_path,
+            file_size=soundtrack.file_size,
+            duration=soundtrack.duration,
+            track_number=soundtrack.track_number,
+            disc_number=soundtrack.disc_number,
+            year=soundtrack.year,
+            genre=soundtrack.genre,
+            album=soundtrack.album,
+            description=soundtrack.description,
+            artists=[ArtistResponse(id=a.id, name=a.name) for a in artists],
+            created_at=soundtrack.created_at,
+            updated_at=soundtrack.updated_at
+        )
+        soundtrack_responses.append(soundtrack_response)
     
     # Group soundtracks if requested
     grouped_data = None
     if group_by == "album":
         grouped = {}
-        for st in soundtracks:
+        for st in soundtrack_responses:
             album_key = st.album or "Unknown Album"
             if album_key not in grouped:
                 grouped[album_key] = []
@@ -141,7 +162,7 @@ def list_soundtracks(
         grouped_data = grouped
     elif group_by == "folder":
         grouped = {}
-        for st in soundtracks:
+        for st in soundtrack_responses:
             if st.file_path:
                 # Extract folder name from path
                 folder = os.path.dirname(st.file_path).split(os.sep)[-1] or "Unknown Folder"
@@ -153,7 +174,7 @@ def list_soundtracks(
         grouped_data = grouped
     
     result = {
-        "soundtracks": soundtracks,
+        "soundtracks": soundtrack_responses,
         "pagination": {
             "total": total,
             "page": current_page,
