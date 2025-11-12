@@ -26,39 +26,59 @@ app.add_middleware(
 app.include_router(router, prefix="/api", tags=["api"])
 
 
-@app.get("/")
-def read_root():
-    """Root endpoint."""
-    return {"message": "VGAudiophile API", "version": "1.0.0"}
-
-
 @app.get("/health")
 def health_check():
     """Health check endpoint."""
     return {"status": "healthy"}
 
 
+@app.get("/api")
+def api_info():
+    """API info endpoint."""
+    return {"message": "VGAudiophile API", "version": "1.0.0"}
+
+
 # Serve frontend static files
-frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
+# Get the project root (parent of app directory)
+app_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(app_dir)
+frontend_path = os.path.join(project_root, "frontend")
+
+# Mount static assets (CSS, JS, etc.) at /static
 if os.path.exists(frontend_path):
     app.mount("/static", StaticFiles(directory=frontend_path), name="static")
     
+    # Serve frontend HTML files - this must come after API routes
     @app.get("/{full_path:path}")
     def serve_frontend(full_path: str):
         """Serve frontend files."""
-        if full_path == "" or full_path == "/":
+        # Don't interfere with API routes
+        if full_path.startswith("api") or full_path.startswith("health"):
+            return {"error": "Not found"}
+        
+        # Serve index.html for root or empty path
+        if full_path == "" or full_path == "/" or full_path == "index.html":
             index_path = os.path.join(frontend_path, "index.html")
             if os.path.exists(index_path):
-                return FileResponse(index_path)
+                return FileResponse(index_path, media_type="text/html")
         
+        # Try to serve the requested file (for direct file access)
         file_path = os.path.join(frontend_path, full_path)
         if os.path.exists(file_path) and os.path.isfile(file_path):
-            return FileResponse(file_path)
+            # Determine media type
+            media_type = "text/html" if file_path.endswith(".html") else None
+            return FileResponse(file_path, media_type=media_type)
         
-        # Default to index.html for SPA routing
+        # For SPA routing, serve index.html for any non-API route
         index_path = os.path.join(frontend_path, "index.html")
         if os.path.exists(index_path):
-            return FileResponse(index_path)
+            return FileResponse(index_path, media_type="text/html")
         
-        return {"error": "Not found"}
+        return {"error": "Not found", "path": full_path, "frontend_path": frontend_path}
+else:
+    # Frontend not found - log for debugging
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Frontend directory not found at: {frontend_path}")
+    logger.warning(f"App dir: {app_dir}, Project root: {project_root}")
 
